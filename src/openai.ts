@@ -49,16 +49,15 @@ const tools: ChatCompletionTool[] = [
 export const generateProducts = async (message: string) => {
   const messages: ChatCompletionMessageParam[] = [
     {
-      role: "developer",
-      content: `
-          Liste três produtos que atendam a necessidade do usuário. Considere apenas os produtos em estoque.
-        `,
+      role: "system",
+      content: `Liste três produtos que atendam à necessidade do usuário. Considere apenas os produtos em estoque.`,
     },
     {
       role: "user",
       content: message,
     },
   ];
+
   const completion = await client.beta.chat.completions.parse({
     model: "gpt-4o-mini",
     max_tokens: 100,
@@ -67,23 +66,36 @@ export const generateProducts = async (message: string) => {
     messages,
   });
 
-  if (completion.choices[0].message.refusal) {
+  const choice = completion.choices[0].message;
+
+  if (choice.refusal) {
     throw new Error("Refusal");
   }
 
-  const { tool_calls } = completion.choices[0].message;
-  if (tool_calls?.length) {
-    const [tool_call] = tool_calls;
+  // Se a IA solicitou chamar uma função (tool call)
+  if (choice.tool_calls?.length) {
+    const [tool_call] = choice.tool_calls;
+
     const toolsMap = {
       produtos_em_estoque: produtosEmEstoque,
       produtos_em_falta: produtosEmFalta,
     };
-    const functionToCall = toolsMap[tool_call.function?.name];
-    if (!functionToCall) {
+
+    const toolName = tool_call.function?.name;
+
+    if (!toolName || !(toolName in toolsMap)) {
       throw new Error("Function not found");
     }
-    const result = functionToCall(tool_call.function.parsed_arguments);
+
+    // Como suas funções não esperam argumentos, chame sem nenhum
+    const functionToCall = toolsMap[toolName as keyof typeof toolsMap];
+    const result = functionToCall();
+
+    // Retorne no formato esperado
+    return { produtos: result.map(p => p.nome).slice(0, 3) }; // apenas os nomes dos 3 primeiros produtos
   }
 
-  return completion.choices[0].message.parsed;
+  // Caso a IA já tenha retornado o resultado via parsing direto
+  return choice.parsed;
 };
+
